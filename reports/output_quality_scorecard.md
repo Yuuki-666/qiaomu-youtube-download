@@ -12,6 +12,7 @@
 - 可选性验证：临时移除两个 API Key 后，元数据仍成功且 `data_api_used: false`；搜索自动回退 `yt-dlp-search`。恢复 Key 后，搜索使用 `youtube-data-api-v3` 并返回时长、播放量与点赞数。
 - 单元测试 4/4、路由回归 13/13 通过；结构、Python、JSON、Meta Skill 校验均通过。
 - 实际安装目录已复验：`cookies_from_browser: chrome`、`data_api_used: true`、无警告；既有视频被识别为 `created: false` 并重新通过 ffprobe，没有覆盖文件。
+- GitHub `main` 经 `npx skills add` 安装到独立临时目录后再次通过 4/4 单测、包校验、官方稳定版检查及同一 Shorts 的下载/ffprobe 回归。
 
 ## missing evidence
 
