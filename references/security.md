@@ -32,8 +32,16 @@
 
 - 只写入用户选择的输出目录。
 - 文件名包含视频 ID，默认 `--no-overwrites`、`--no-playlist`。
-- rollback boundary：只清理由本次运行创建的未完成临时文件；不删除已存在或已验证文件。
+- 同一视频、输出目录和操作使用系统临时目录中的哈希锁；锁内容只有 PID，不保存 URL、标题、Cookie 或 Key。
+- rollback boundary：最终媒体验证成功后，只清理由本次运行新产生且匹配 `.f<format-id>` 的 yt-dlp 格式分片；不删除已存在、已验证或用户命名的文件。
 - 字幕 TXT 只在对应文件不存在时创建，不覆盖用户修改版。
+
+## Process boundary
+
+- 长下载进度输出到 stderr，最终机器可读 JSON 输出到 stdout。
+- 同一任务只允许一个 yt-dlp 进程；锁冲突时等待原会话，不重复执行命令。
+- POSIX 下载子进程继承锁描述符；父进程异常结束但子进程仍存活时，锁仍保持。
+- 超时、SIGTERM、SIGHUP 或 Ctrl-C 时终止整个子进程组，避免遗留孤儿下载进程。
 
 ## Content boundary
 

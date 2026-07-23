@@ -3,7 +3,7 @@
   "generated_at": "2026-07-23",
   "package": {
     "name": "qiaomu-youtube-download",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "owner": "向阳乔木",
     "maturity_tier": "governed",
     "lifecycle_stage": "production-candidate",
@@ -69,21 +69,23 @@
     "compact_workflow": [
       "运行 `python3 scripts/youtube.py doctor --upgrade`，对照 yt-dlp 官方 GitHub 最新稳定版检查本机版本；确有新版时按 Homebrew 或 yt-dlp 自更新方式升级并复验。更新检查失败不阻断后续公开下载。",
       "运行 `python3 scripts/youtube.py info '<URL>'`，验证域名、链接类型、`yt-dlp` 可用性及公开元数据。",
-      "视频下载：`python3 scripts/youtube.py download '<URL>' --dir '<目录>' --quality best`。Shorts 与普通视频使用同一命令。",
+      "视频下载：`python3 scripts/youtube.py download '<URL>' --dir '<目录>' --quality best`。Shorts 与普通视频使用同一命令。长任务必须使用可持续轮询的终端会话；没有最终 JSON 时继续轮询同一会话，不重新启动命令。",
       "音频下载：`python3 scripts/youtube.py audio '<URL>' --dir '<目录>'`；字幕下载：`python3 scripts/youtube.py subtitles '<URL>' --dir '<目录>' --langs 'en,zh-Hans'`。",
       "默认 `--cookies-from-browser auto`：按 Chrome、Edge、Firefox、Safari 顺序检测本机浏览器，优先本机 Cookie；自动读取失败时回退无 Cookie。用户可用 `--cookies-from-browser none` 禁用。",
-      "脚本使用包含视频 ID 的安全文件名、不覆盖已有文件，并对音视频运行 `ffprobe`；字幕同时生成 `.srt` 与保留时间戳的 `.txt`。",
-      "返回绝对路径、标题、视频 ID、编码、分辨率、时长、大小以及是否使用 Cookie。失败时返回具体阶段和 `yt-dlp` 的脱敏错误摘要。"
+      "同一视频、输出目录和操作类型使用跨进程锁，避免两个 yt-dlp 同时写同一个 `.part`；下载进度持续输出到 stderr，超时或中断时终止整个子进程组。",
+      "脚本只把最终视频/MP3 纳入验证，排除 `.f140-7.m4a`、`.f399.mp4` 等格式分片；最终文件通过 `ffprobe` 后清理本次新产生的残留格式分片。字幕同时生成 `.srt` 与保留时间戳的 `.txt`。",
+      "返回绝对路径、标题、视频 ID、编码、分辨率、时长、大小、Cookie 状态和已清理的中间文件。失败时返回具体阶段和 `yt-dlp` 的脱敏错误摘要。"
     ],
     "gate_ladder": [
       "输入门：HTTPS YouTube 域名、受支持的视频路径、无凭据和自定义端口。",
       "依赖门：`yt-dlp` 可执行并已检查官方最新稳定版；需要合并、MP3 或强验证时检查 `ffmpeg`/`ffprobe`。",
+      "并发门：同一视频、目录和操作最多一个下载进程；锁冲突直接报告并要求继续轮询原会话。",
       "信任门：默认自动读取检测到的本机浏览器 Cookie；只传给本机 yt-dlp，不记录、不复制、不输出，可用 `none` 禁用。",
       "输出门：文件存在、非零、路径位于目标目录；音视频含预期流且时长大于零。",
       "交付门：返回实际绝对路径和验证元数据，不只说“下载完成”。"
     ],
     "output_contract": [
-      "成功：返回标题、视频 ID、实际文件绝对路径、容器/编码/分辨率/时长/大小、Cookie 使用状态。",
+      "成功：返回标题、视频 ID、实际文件绝对路径、容器/编码/分辨率/时长/大小、Cookie 使用状态和本次清理的中间文件。",
       "字幕：至少返回 `.srt`；同时生成保留时间戳的 `.txt`。没有可用字幕时明确报告，不伪造转录。",
       "失败：返回 `validate`、`dependency`、`metadata`、`download` 或 `verify` 阶段和最小下一步。",
       "搜索：有 Key 时使用 YouTube Data API v3，失败或无 Key 时回退 yt-dlp；返回标题、频道、视频 URL、时长和可用统计。"
@@ -156,7 +158,8 @@
       "no overwrite and no playlist by default",
       "ffprobe verification for audio/video",
       "absolute output paths",
-      "official stable yt-dlp version check with upgrade verification"
+      "official stable yt-dlp version check with upgrade verification",
+      "single-process lock and final-artifact filtering for long downloads"
     ]
   },
   "evidence_boundary": {

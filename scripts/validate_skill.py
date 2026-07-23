@@ -53,6 +53,10 @@ def main() -> None:
         "doctor",
         "--upgrade",
         "HOMEBREW_NO_AUTO_UPDATE",
+        "download_lock",
+        "run_streaming_command",
+        "FORMAT_FRAGMENT_RE",
+        "cleaned_intermediate_files",
         "ffprobe",
     ):
         if term not in script:

@@ -10,9 +10,11 @@
 - Provider-backed Shorts 验证：自动检测并读取 Chrome Cookie，无警告；可选 Data API 实际返回发布时间、播放量与点赞数。
 - 新脚本端到端下载成功：MP4 7,239,249 bytes，AV1 + AAC，1080×1920，48.855 秒，`ffprobe` 通过。
 - 可选性验证：临时移除两个 API Key 后，元数据仍成功且 `data_api_used: false`；搜索自动回退 `yt-dlp-search`。恢复 Key 后，搜索使用 `youtube-data-api-v3` 并返回时长、播放量与点赞数。
-- 单元测试 4/4、路由回归 13/13 通过；结构、Python、JSON、Meta Skill 校验均通过。
+- v1.2.0 单元测试 10/10、路由回归 13/13 通过；结构、Python、JSON、Meta Skill 校验均通过。
 - 实际安装目录已复验：`cookies_from_browser: chrome`、`data_api_used: true`、无警告；既有视频被识别为 `created: false` 并重新通过 ffprobe，没有覆盖文件。
 - GitHub `main` 经 `npx skills add` 安装到独立临时目录后再次通过 4/4 单测、包校验、官方稳定版检查及同一 Shorts 的下载/ffprobe 回归。
+- 公开 11 分 40 秒长视频复现：外层窗口提前返回后遗留两个 yt-dlp 进程并发写同一 `.part`；合并后残留 `.f140-7.m4a` 被旧版误当最终视频验证。v1.2.0 将该失败升级为跨进程锁、可见进度、子进程组清理和最终产物筛选机制。
+- v1.2.0 provider-backed 回归：同一长视频复用已有 MP4 时持续输出 yt-dlp 进度，最终 JSON 只交付 35,234,133 bytes、1920×1080、AV1 + AAC、700.082 秒 MP4；`cleaned_intermediate_files: []`，无 warning。
 
 ## missing evidence
 

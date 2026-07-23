@@ -4,21 +4,28 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
+from contextlib import contextmanager
+import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Iterator
 import urllib.error
 import urllib.parse
 import urllib.request
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 ALLOWED_HOSTS = {
     "youtube.com",
     "www.youtube.com",
@@ -27,7 +34,10 @@ ALLOWED_HOSTS = {
     "youtu.be",
 }
 MEDIA_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".opus", ".ogg", ".wav"}
+VIDEO_OUTPUT_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov"}
+AUDIO_OUTPUT_SUFFIXES = {".mp3"}
 SUBTITLE_SUFFIXES = {".srt", ".vtt", ".ass", ".lrc", ".txt"}
+FORMAT_FRAGMENT_RE = re.compile(r"\.f\d+(?:-\d+)?\.[^.]+$")
 DATA_API_BASE = "https://www.googleapis.com/youtube/v3"
 YT_DLP_RELEASE_API = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 YT_DLP_RELEASE_LATEST = "https://github.com/yt-dlp/yt-dlp/releases/latest"
@@ -231,7 +241,107 @@ def error_summary(completed: subprocess.CompletedProcess[str]) -> str:
     return " | ".join(lines[-8:])[:1600] or f"yt-dlp exited with {completed.returncode}"
 
 
-def run_command(args: list[str], stage: str, timeout: int) -> subprocess.CompletedProcess[str]:
+def terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
+        process.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        if process.poll() is None:
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+
+
+def run_streaming_command(
+    args: list[str],
+    stage: str,
+    timeout: int,
+    pass_fds: tuple[int, ...],
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+        pass_fds=pass_fds,
+    )
+    if process.stdout is None:
+        terminate_process_tree(process)
+        raise SkillError(stage, "could not capture command output")
+
+    output: deque[str] = deque(maxlen=500)
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    previous_handlers: dict[int, Any] = {}
+
+    def stop_child(_signum: int, _frame: Any) -> None:
+        terminate_process_tree(process)
+        raise KeyboardInterrupt
+
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            previous_handlers[signum] = signal.signal(signum, stop_child)
+        except (AttributeError, ValueError):
+            pass
+
+    try:
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                terminate_process_tree(process)
+                raise SkillError(stage, f"command timed out after {timeout}s")
+            for key, _mask in selector.select(timeout=min(1.0, remaining)):
+                line = key.fileobj.readline()
+                if not line:
+                    continue
+                output.append(line)
+                print(line.rstrip(), file=sys.stderr, flush=True)
+        tail = process.stdout.read()
+        if tail:
+            for line in tail.splitlines(keepends=True):
+                output.append(line)
+                print(line.rstrip(), file=sys.stderr, flush=True)
+    except KeyboardInterrupt:
+        terminate_process_tree(process)
+        raise
+    finally:
+        selector.close()
+        process.stdout.close()
+        for signum, previous in previous_handlers.items():
+            signal.signal(signum, previous)
+
+    completed = subprocess.CompletedProcess(args, process.returncode, "".join(output), "")
+    if completed.returncode != 0:
+        raise SkillError(stage, error_summary(completed))
+    return completed
+
+
+def run_command(
+    args: list[str],
+    stage: str,
+    timeout: int,
+    *,
+    stream: bool = False,
+    pass_fds: tuple[int, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    if stream and os.name == "posix":
+        return run_streaming_command(args, stage, timeout, pass_fds)
     try:
         completed = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -239,6 +349,56 @@ def run_command(args: list[str], stage: str, timeout: int) -> subprocess.Complet
     if completed.returncode != 0:
         raise SkillError(stage, error_summary(completed))
     return completed
+
+
+def lock_path(output_dir: Path, video_id: str, operation: str) -> Path:
+    lock_dir = Path(tempfile.gettempdir()) / "qiaomu-youtube-download-locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(f"{output_dir.resolve()}|{video_id}|{operation}".encode("utf-8")).hexdigest()
+    return lock_dir / f"{digest}.lock"
+
+
+@contextmanager
+def download_lock(output_dir: Path, video_id: str, operation: str) -> Iterator[BinaryIO]:
+    handle = lock_path(output_dir, video_id, operation).open("a+b")
+    try:
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                import msvcrt
+
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except (BlockingIOError, OSError) as exc:
+            raise SkillError(
+                "download",
+                "another download for this video and output directory is still running; poll that session instead of starting a second process",
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()).encode("ascii"))
+        handle.flush()
+        yield handle
+    finally:
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            else:
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except (OSError, ValueError):
+            pass
+        handle.close()
 
 
 def load_metadata_once(url: str, browser: str | None, timeout: int = 90) -> dict[str, Any]:
@@ -369,7 +529,27 @@ def matching_files(output_dir: Path, video_id: str, suffixes: set[str]) -> list[
         and f"[{video_id}]" in path.name
         and path.suffix.lower() in suffixes
         and not path.name.endswith((".part", ".ytdl"))
+        and not FORMAT_FRAGMENT_RE.search(path.name)
     )
+
+
+def all_media_files(output_dir: Path, video_id: str) -> list[Path]:
+    return sorted(
+        path for path in output_dir.iterdir()
+        if path.is_file()
+        and f"[{video_id}]" in path.name
+        and path.suffix.lower() in MEDIA_SUFFIXES
+    )
+
+
+def cleanup_new_format_fragments(output_dir: Path, video_id: str, before: set[Path]) -> list[str]:
+    removed: list[str] = []
+    for path in all_media_files(output_dir, video_id):
+        if path.resolve() in before or not FORMAT_FRAGMENT_RE.search(path.name):
+            continue
+        path.unlink()
+        removed.append(str(path.resolve()))
+    return removed
 
 
 def probe_media(path: Path, expect: str) -> dict[str, Any]:
@@ -427,40 +607,47 @@ def download_media(
     require_tool("ffmpeg")
     metadata, browser, warnings = load_metadata(url, cookie_mode)
     video_id = str(metadata["id"])
-    before = {path.resolve() for path in matching_files(output_dir, video_id, MEDIA_SUFFIXES)}
-    command = [
-        yt_dlp,
-        "--no-playlist",
-        "--no-overwrites",
-        "--newline",
-        *cookie_args(browser),
-    ]
-    if audio_only:
-        command += ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
-    else:
-        command += ["-f", QUALITY_FORMATS[quality], "--merge-output-format", "mp4"]
-    command += ["-o", output_template(output_dir), url]
-    try:
-        run_command(command, "download", timeout)
-    except SkillError as exc:
-        if not browser or cookie_mode != "auto":
-            raise
-        warnings.append(f"{browser} cookie download failed; retried without cookies: {exc}")
-        browser = None
-        command = without_cookie_args(command)
-        run_command(command, "download", timeout)
-    files = matching_files(output_dir, video_id, MEDIA_SUFFIXES)
-    if not files:
-        raise SkillError("download", "yt-dlp completed but no media file containing the video ID was found")
-    verified = [probe_media(path, "audio" if audio_only else "video") for path in files]
-    for item in verified:
-        item["created"] = Path(item["path"]).resolve() not in before
+    operation = "audio" if audio_only else "video"
+    desired_suffixes = AUDIO_OUTPUT_SUFFIXES if audio_only else VIDEO_OUTPUT_SUFFIXES
+    with download_lock(output_dir, video_id, operation) as lock_handle:
+        before = {path.resolve() for path in matching_files(output_dir, video_id, desired_suffixes)}
+        before_artifacts = {path.resolve() for path in all_media_files(output_dir, video_id)}
+        command = [
+            yt_dlp,
+            "--no-playlist",
+            "--no-overwrites",
+            "--newline",
+            *cookie_args(browser),
+        ]
+        if audio_only:
+            command += ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
+        else:
+            command += ["-f", QUALITY_FORMATS[quality], "--merge-output-format", "mp4"]
+        command += ["-o", output_template(output_dir), url]
+        run_options = {"stream": True, "pass_fds": (lock_handle.fileno(),)}
+        try:
+            run_command(command, "download", timeout, **run_options)
+        except SkillError as exc:
+            if not browser or cookie_mode != "auto":
+                raise
+            warnings.append(f"{browser} cookie download failed; retried without cookies: {exc}")
+            browser = None
+            command = without_cookie_args(command)
+            run_command(command, "download", timeout, **run_options)
+        files = matching_files(output_dir, video_id, desired_suffixes)
+        if not files:
+            raise SkillError("download", "yt-dlp completed but no final media file containing the video ID was found")
+        verified = [probe_media(path, operation) for path in files]
+        for item in verified:
+            item["created"] = Path(item["path"]).resolve() not in before
+        cleaned = cleanup_new_format_fragments(output_dir, video_id, before_artifacts)
     return {
         "ok": True,
         "command": "audio" if audio_only else "download",
         **enriched_summary(metadata, min(timeout, 60)),
         "quality": "mp3-best" if audio_only else quality,
         "files": verified,
+        "cleaned_intermediate_files": cleaned,
         "cookies_from_browser": browser,
         "warnings": warnings,
     }
@@ -487,29 +674,31 @@ def download_subtitles(
     require_tool("ffmpeg")
     metadata, browser, warnings = load_metadata(url, cookie_mode)
     video_id = str(metadata["id"])
-    command = [
-        yt_dlp,
-        "--no-playlist",
-        "--no-overwrites",
-        "--write-subs",
-        "--write-auto-subs",
-        "--sub-langs", langs,
-        "--convert-subs", "srt",
-        "--skip-download",
-        *cookie_args(browser),
-        "-o", output_template(output_dir),
-        url,
-    ]
-    try:
-        run_command(command, "download", timeout)
-    except SkillError as exc:
-        if not browser or cookie_mode != "auto":
-            raise
-        warnings.append(f"{browser} cookie subtitle path failed; retried without cookies: {exc}")
-        browser = None
-        command = without_cookie_args(command)
-        run_command(command, "download", timeout)
-    subtitles = [path for path in matching_files(output_dir, video_id, SUBTITLE_SUFFIXES) if path.suffix.lower() == ".srt"]
+    with download_lock(output_dir, video_id, "subtitles") as lock_handle:
+        command = [
+            yt_dlp,
+            "--no-playlist",
+            "--no-overwrites",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs", langs,
+            "--convert-subs", "srt",
+            "--skip-download",
+            *cookie_args(browser),
+            "-o", output_template(output_dir),
+            url,
+        ]
+        run_options = {"stream": True, "pass_fds": (lock_handle.fileno(),)}
+        try:
+            run_command(command, "download", timeout, **run_options)
+        except SkillError as exc:
+            if not browser or cookie_mode != "auto":
+                raise
+            warnings.append(f"{browser} cookie subtitle path failed; retried without cookies: {exc}")
+            browser = None
+            command = without_cookie_args(command)
+            run_command(command, "download", timeout, **run_options)
+        subtitles = [path for path in matching_files(output_dir, video_id, SUBTITLE_SUFFIXES) if path.suffix.lower() == ".srt"]
     if not subtitles:
         raise SkillError("download", f"no SRT subtitle matched requested languages: {langs}")
     text_files = [srt_to_timestamped_txt(path) for path in subtitles]

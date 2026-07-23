@@ -8,6 +8,8 @@
 - Cookie：默认自动检测本机浏览器并临时读取；自动失败回退无 Cookie，可显式禁用
 - Data API Key：可选搜索/统计增强，只从环境读取；失败回退 yt-dlp，不阻断下载
 - 文件：用户指定目录、单视频、默认不覆盖、不展开播放列表
+- 进程：长下载持续输出 stderr 进度；同一任务跨进程锁；中断/超时终止子进程组
+- 中间文件：最终 ffprobe 成功后只清理本次新产生的 `.f<format-id>` 分片，不碰既有媒体
 - rollback boundary：只清理本次未完成临时文件，不删除既有或已验证文件
 - dependency rollback boundary：不安装其他工具、不降级；更新失败不声称成功，原安装由包管理器保留
 - Secret scan：发布前运行；API Key/Cookie 不进入包、日志、夹具或报告

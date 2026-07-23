@@ -13,7 +13,7 @@ npx skills add joeseesun/qiaomu-youtube-download
 
 旧版 `yt-search-download` 把 YouTube Data API Key 错误地设成所有命令的前置条件，导致普通下载也可能直接退出；它还会自动尝试浏览器 Cookie，却不返回实际文件路径和媒体验证结果。
 
-`qiaomu-youtube-download` 将 URL 下载与搜索解耦：下载不要求 API Key；配置 Key 时，搜索与统计信息优先使用 YouTube Data API v3。每次下载任务先对照 yt-dlp 官方稳定版检查并按需升级。下载默认自动读取本机浏览器 Cookie 以提高稳定性，Cookie 读取失败时自动回退公开无 Cookie 路径。下载后使用 `ffprobe` 验证，并返回真实绝对路径。
+`qiaomu-youtube-download` 将 URL 下载与搜索解耦：下载不要求 API Key；配置 Key 时，搜索与统计信息优先使用 YouTube Data API v3。每次下载任务先对照 yt-dlp 官方稳定版检查并按需升级。下载默认自动读取本机浏览器 Cookie 以提高稳定性，Cookie 读取失败时自动回退公开无 Cookie 路径。长任务持续输出进度并用跨进程锁阻止重复写入；下载后只验证最终媒体、清理本次残留格式分片，并返回真实绝对路径。
 
 ## 安装
 
@@ -45,13 +45,14 @@ python3 ~/.agents/skills/qiaomu-youtube-download/scripts/youtube.py doctor
 2. 严格校验 YouTube URL，不接受链接内凭据、自定义端口或其他域名。
 3. 默认自动检测本机浏览器 Cookie；读取失败时回退无 Cookie 下载单个视频。
 4. 支持最佳画质、1080p、720p、480p、MP3、字幕及基础搜索。
-5. 使用包含视频 ID 的文件名，避免不同视频重名；不覆盖既有文件。
-6. 用 `ffprobe` 检查音视频流、分辨率、编码、时长和大小。
-7. 返回机器可读 JSON，供 Agent 准确交付文件。
+5. 使用包含视频 ID 的文件名，避免不同视频重名；同一任务用文件锁阻止两个 yt-dlp 同时写入。
+6. 长下载持续输出进度；超时或中断时终止整个子进程组，避免孤儿进程。
+7. 排除 `.f140-7.m4a`、`.f399.mp4` 等分离格式文件，只用 `ffprobe` 验证最终媒体。
+8. 最终验证成功后清理本次新产生的格式分片，并返回机器可读 JSON。
 
 ## 前置条件
 
-- [ ] Python 3：`python3 --version`
+- [ ] Python 3.10+：`python3 --version`
 - [ ] yt-dlp：`yt-dlp --version`
 - [ ] FFmpeg/ffprobe：`ffmpeg -version`、`ffprobe -version`
 - [ ] 可选搜索增强：`YT_BROWSE_API_KEY` 或 `YOUTUBE_API_KEY`
@@ -141,6 +142,9 @@ Cookie 仅由本机 `yt-dlp` 临时读取，不复制到 Skill、不打印、不
 | Data API 配额、Key 或网络错误 | 官方搜索增强不可用 | 自动回退 yt-dlp 搜索；下载不受影响 |
 | 提示登录、年龄或地区限制 | 浏览器 Cookie 不存在、已过期或账号无权限 | 登录浏览器后重试，或显式指定其他浏览器 |
 | 浏览器 Cookie 读取失败 | 浏览器数据库被锁、Keychain 未授权或浏览器不受支持 | 关闭相关浏览器重试，或不使用 Cookie |
+| 终端暂时没有最终 JSON | 长下载仍在原会话运行 | 继续轮询同一个 session/cell；不要重复执行下载命令 |
+| `another download ... is still running` | 同一视频与目录已有进程持锁 | 等待原会话，确认原进程结束后再续传 |
+| `.f140-7.m4a` 被误报为“没有视频流” | 旧版把 yt-dlp 分离音轨当最终视频验证 | 升级到 v1.2.0；最终验证会排除并清理本次新格式分片 |
 | 没有字幕文件 | 视频没有所选语言的人工/自动字幕 | 调整 `--langs`，或另走 ASR 转录 Skill |
 | 已存在同名文件 | 默认禁止覆盖 | 保留既有文件；新视频用 ID 区分 |
 
@@ -150,6 +154,7 @@ Cookie 仅由本机 `yt-dlp` 临时读取，不复制到 Skill、不打印、不
 - 不绕过付费、登录、地域、年龄、版权或 DRM 限制。
 - 默认会在本机自动读取检测到的浏览器 Cookie，可用 `--cookies-from-browser none` 禁用；Cookie 不复制、不打印、不写入报告。
 - 默认单视频，不无限批量抓取频道或播放列表。
+- 同一视频/目录/操作使用临时文件锁；锁不包含 URL、标题、Cookie 或 API Key。
 - `doctor --upgrade` 会在检测到官方稳定新版时修改现有 yt-dlp 安装；不会升级其他 Homebrew 公式。
 - 不负责重新上传、转载或规避平台政策。
 

@@ -2,7 +2,7 @@
 
 ## 状态机
 
-`DEPENDENCY CHECK → VALIDATE → METADATA → DOWNLOAD → VERIFY → REPORT`
+`DEPENDENCY CHECK → VALIDATE → METADATA → LOCK → DOWNLOAD → MERGE → VERIFY → CLEANUP → REPORT`
 
 失败时报告阶段和错误，不把失败文件误报为交付物。
 
@@ -45,6 +45,9 @@ python3 scripts/youtube.py download '<URL>' --quality best --dir '<目录>'
 - 允许 `best`、`1080p`、`720p`、`480p`。
 - 输出模板包含 `[video_id]`，并启用 `--no-overwrites`。
 - yt-dlp 使用自身 `.part` 临时文件机制；未完成文件不能进入交付清单。
+- 长视频必须在一个可持续轮询的终端会话中运行。工具暂时返回 session/cell ID 时继续轮询同一会话，不能把“还没有最终 JSON”误判为完成并再次执行下载命令。
+- 同一视频 ID、输出目录和操作类型由系统临时目录中的文件锁互斥。锁冲突说明已有下载仍在运行，应等待原会话；不得启动第二个写入者。
+- 下载进度逐行写到 stderr；JSON 结果保留在 stdout。超时、SIGTERM、SIGHUP 或手动中断时终止整个 yt-dlp 子进程组。
 
 ## 5. 音频与字幕
 
@@ -82,11 +85,14 @@ python3 scripts/youtube.py download '<URL>' --cookies-from-browser none
 - 视频：至少一个视频流，时长大于零；报告视频/音频编码、分辨率、容器和大小。
 - 音频：至少一个音频流，时长大于零；报告编码、容器和大小。
 - 字幕：SRT/TXT 均存在且非零。
+- 视频交付只接受 `.mp4/.mkv/.webm/.mov` 最终文件；音频交付只接受最终 `.mp3`。`.f399.mp4`、`.f140-7.m4a` 等 yt-dlp 格式分片不进入交付验证。
+- 最终文件通过 ffprobe 后，仅清理本次新产生的 `.f<format-id>` 残留分片，并在 JSON 的 `cleaned_intermediate_files` 中报告；既有文件不删除。
 - 返回绝对路径；`created: false` 表示复用了目标目录中已存在且通过验证的文件。
 
 ## 已知边界
 
 - YouTube 可能改变播放器签名、客户端要求或公开格式。
+- 外层运行器若强制结束父进程，POSIX 子进程会继承下载锁，后续命令将拒绝并发写入；Agent 应持续轮询原会话或确认原进程结束后再续传。
 - 某些格式需要登录、年龄/地区验证或特定客户端，不保证可下载。
 - 字幕语言表达式由 yt-dlp 解释；自动字幕可能存在识别错误。
 - 搜索有 Key 时支持 Data API 的相关度、日期、播放量与评分排序；无 Key 时回退 yt-dlp 相关度搜索。
