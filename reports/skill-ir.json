@@ -1,0 +1,168 @@
+{
+  "schema_version": "2.0.0-qiaomu-lite",
+  "generated_at": "2026-07-23",
+  "package": {
+    "name": "qiaomu-youtube-download",
+    "version": "1.1.0",
+    "owner": "向阳乔木",
+    "maturity_tier": "governed",
+    "lifecycle_stage": "production-candidate",
+    "upstream_inspiration": "https://github.com/yt-dlp/yt-dlp"
+  },
+  "intent": {
+    "description": "Download, save, inspect, search, transcribe, or extract audio/subtitles from YouTube videos, Shorts, and public live-video URLs. Use this Qiaomu skill whenever the user provides youtube.com, youtu.be, or youtube.com/shorts and asks to 下载、保存、查看信息、提取音频、转 MP3、下载字幕、转文字、搜索, or says YouTube/油管/YT with those actions. Run the verified local yt-dlp workflow without requiring a YouTube API key for URL-based operations; use an optional YT_BROWSE_API_KEY or YOUTUBE_API_KEY to improve search/statistics, automatically read cookies from a detected local browser for stability, and retry without cookies if automatic cookie access fails. Exclude re-uploading, access-control bypass, DRM circumvention, and unbounded channel or playlist scraping.\n",
+    "job_to_be_done": "Download or inspect one authorized YouTube video, Short, or live-video URL and return verified local artifacts.",
+    "target_users": [
+      "Qiaomu operator",
+      "public skill installer"
+    ],
+    "inputs": [
+      "one public YouTube video URL or a bounded search query",
+      "optional quality, language, browser-cookie, and output preferences"
+    ],
+    "outputs": [
+      "verified video or MP3",
+      "SRT and timestamped TXT",
+      "metadata or bounded search results"
+    ],
+    "exclusions": [
+      "DRM bypass",
+      "access-control bypass",
+      "unbounded channel scraping",
+      "silent browser-cookie access",
+      "upload or re-publication"
+    ],
+    "qiaomu_defaults": {
+      "copyright": "Copyright (c) 向阳乔木",
+      "x": "https://x.com/vista8",
+      "github": "https://github.com/joeseesun/"
+    }
+  },
+  "triggers": {
+    "should_trigger": [
+      "下载这个 Shorts：https://www.youtube.com/shorts/EXAMPLE123",
+      "把这个 YouTube 视频保存下来，最高画质",
+      "这个油管视频只要 MP3",
+      "提取刚才那个 YT 视频的中英文字幕",
+      "查看 https://youtu.be/EXAMPLE123 的视频信息",
+      "在 YouTube 搜索 AI agents"
+    ],
+    "should_not_trigger": [
+      "把这个 YouTube 链接添加到 NotebookLM，不要下载",
+      "下载这个哔哩哔哩视频",
+      "帮我把视频上传到 YouTube",
+      "给我的 YouTube 频道写一段简介"
+    ],
+    "near_neighbor": [
+      "总结这个 YouTube 视频，我已经有字幕了",
+      "制作一条适合 YouTube Shorts 的视频",
+      "解释 YouTube Shorts 的推荐算法"
+    ]
+  },
+  "workflow": {
+    "router_rules": [
+      "必须触发：`youtube.com`、`youtu.be`、`youtube.com/shorts` 链接与下载、保存、音频、MP3、字幕、转录、信息查询动作同时出现。",
+      "也触发：用户说“YouTube/油管/YT 搜索”或在当前上下文已有链接后说“下载这个”“只要音频”“把字幕提出来”。",
+      "不触发：只把 YouTube URL 交给 NotebookLM、只做内容总结且已有转录、下载其他平台、批量抓取整个频道或未限定播放列表。",
+      "只处理用户有权访问和保存的公开或本人可访问内容；不绕过登录、付费、地域、年龄、版权或 DRM 控制。"
+    ],
+    "compact_workflow": [
+      "运行 `python3 scripts/youtube.py doctor --upgrade`，对照 yt-dlp 官方 GitHub 最新稳定版检查本机版本；确有新版时按 Homebrew 或 yt-dlp 自更新方式升级并复验。更新检查失败不阻断后续公开下载。",
+      "运行 `python3 scripts/youtube.py info '<URL>'`，验证域名、链接类型、`yt-dlp` 可用性及公开元数据。",
+      "视频下载：`python3 scripts/youtube.py download '<URL>' --dir '<目录>' --quality best`。Shorts 与普通视频使用同一命令。",
+      "音频下载：`python3 scripts/youtube.py audio '<URL>' --dir '<目录>'`；字幕下载：`python3 scripts/youtube.py subtitles '<URL>' --dir '<目录>' --langs 'en,zh-Hans'`。",
+      "默认 `--cookies-from-browser auto`：按 Chrome、Edge、Firefox、Safari 顺序检测本机浏览器，优先本机 Cookie；自动读取失败时回退无 Cookie。用户可用 `--cookies-from-browser none` 禁用。",
+      "脚本使用包含视频 ID 的安全文件名、不覆盖已有文件，并对音视频运行 `ffprobe`；字幕同时生成 `.srt` 与保留时间戳的 `.txt`。",
+      "返回绝对路径、标题、视频 ID、编码、分辨率、时长、大小以及是否使用 Cookie。失败时返回具体阶段和 `yt-dlp` 的脱敏错误摘要。"
+    ],
+    "gate_ladder": [
+      "输入门：HTTPS YouTube 域名、受支持的视频路径、无凭据和自定义端口。",
+      "依赖门：`yt-dlp` 可执行并已检查官方最新稳定版；需要合并、MP3 或强验证时检查 `ffmpeg`/`ffprobe`。",
+      "信任门：默认自动读取检测到的本机浏览器 Cookie；只传给本机 yt-dlp，不记录、不复制、不输出，可用 `none` 禁用。",
+      "输出门：文件存在、非零、路径位于目标目录；音视频含预期流且时长大于零。",
+      "交付门：返回实际绝对路径和验证元数据，不只说“下载完成”。"
+    ],
+    "output_contract": [
+      "成功：返回标题、视频 ID、实际文件绝对路径、容器/编码/分辨率/时长/大小、Cookie 使用状态。",
+      "字幕：至少返回 `.srt`；同时生成保留时间戳的 `.txt`。没有可用字幕时明确报告，不伪造转录。",
+      "失败：返回 `validate`、`dependency`、`metadata`、`download` 或 `verify` 阶段和最小下一步。",
+      "搜索：有 Key 时使用 YouTube Data API v3，失败或无 Key 时回退 yt-dlp；返回标题、频道、视频 URL、时长和可用统计。"
+    ]
+  },
+  "resources": {
+    "references": [
+      "references/security.md",
+      "references/workflow.md"
+    ],
+    "scripts": [
+      "scripts/test_youtube.py",
+      "scripts/trigger_eval.py",
+      "scripts/validate_skill.py",
+      "scripts/youtube.py"
+    ],
+    "evals": [
+      "evals/output/cases.json",
+      "evals/trigger_cases.json"
+    ],
+    "reports": [
+      "reports/install-proof.md",
+      "reports/output_quality_scorecard.md",
+      "reports/skill-ir.json",
+      "reports/trigger-eval.json",
+      "reports/trust-report.md"
+    ]
+  },
+  "portability": {
+    "canonical_format": "agent-skills",
+    "adapter_targets": [
+      "openai",
+      "claude",
+      "generic",
+      "agent-skills-compatible"
+    ],
+    "activation": {
+      "mode": "automatic-or-manual",
+      "paths": []
+    },
+    "execution": {
+      "context": "local-machine",
+      "shell": "python3 plus yt-dlp and ffmpeg"
+    },
+    "trust": {
+      "source_tier": "local-installed-cli",
+      "remote_inline_execution": "forbid",
+      "browser_cookies": "automatic-local-with-cookie-free-fallback-and-disable-option",
+      "generated_public_claims": "evidence-bound"
+    },
+    "permissions": {
+      "network": "YouTube metadata, search, subtitle, and media CDN access",
+      "file_write": "user-selected output directory",
+      "subprocess": "yt-dlp, ffmpeg, ffprobe, and Homebrew only for an existing yt-dlp upgrade",
+      "interactive": "may be required by macOS Keychain during automatic browser-cookie access"
+    },
+    "degradation": {
+      "no_network": "cannot inspect, search, or download",
+      "no_ytdlp": "dependency error with install command",
+      "no_ffmpeg": "metadata only; no verified merged video, MP3, or subtitle conversion",
+      "no_browser_cookie": "retry public no-cookie path",
+      "no_update_network": "report the update-check warning and continue with the installed yt-dlp"
+    }
+  },
+  "gates": {
+    "governed": [
+      "valid single-video YouTube URL",
+      "automatic local browser-cookie detection with no-cookie fallback",
+      "cookie source and Data API usage reported without secret values",
+      "no overwrite and no playlist by default",
+      "ffprobe verification for audio/video",
+      "absolute output paths",
+      "official stable yt-dlp version check with upgrade verification"
+    ]
+  },
+  "evidence_boundary": {
+    "generated_reports_are_evidence": true,
+    "planned_work_is_evidence": false,
+    "missing_external_or_human_evidence_label": "missing evidence",
+    "public_claim_policy": "claim only what local validation, install proof, human review, or provider-backed evidence actually supports"
+  }
+}

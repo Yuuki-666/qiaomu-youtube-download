@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "prompt": "下载这个 Shorts：https://www.youtube.com/shorts/EXAMPLE123",
+      "input_files": [],
+      "fixture_type": "file-backed fixture",
+      "baseline_output": "直接调用 yt-dlp，不验证文件，或因为缺少 YouTube API Key 而在下载前退出。",
+      "with_skill_output": "先对照 yt-dlp 官方稳定版检查并按需升级；验证单视频 URL；可选 Data API 增强；自动读取本机浏览器 Cookie并在失败时无 Cookie 回退；下载最佳画质；ffprobe 验证；返回绝对路径和媒体信息。",
+      "assertions": [
+        "URL 下载不要求 YouTube Data API Key",
+        "先检查 yt-dlp 官方稳定版，只在过期时升级并复验版本",
+        "默认自动检测本机浏览器 Cookie，失败时无 Cookie 回退，并可显式禁用",
+        "Data API Key 是搜索和统计增强，不是下载前置条件",
+        "默认启用 --no-playlist 和 --no-overwrites",
+        "Shorts 与普通视频均由同一下载命令处理",
+        "输出包含绝对路径、编码、分辨率、时长和大小",
+        "失败时包含具体阶段，不只说 yt-dlp 失败"
+      ],
+      "human_notes": "公开 Shorts 已做 provider-backed 下载验证；受限内容与跨平台仍为 missing evidence。"
+    }
+  ]
+}

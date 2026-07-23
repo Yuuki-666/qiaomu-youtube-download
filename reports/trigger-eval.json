@@ -1,0 +1,108 @@
+{
+  "ok": true,
+  "total": 13,
+  "passed": 13,
+  "description_required_terms": [
+    "youtube.com",
+    "youtu.be",
+    "shorts",
+    "下载",
+    "字幕",
+    "audio",
+    "cookies"
+  ],
+  "missing_description_terms": [],
+  "results": [
+    {
+      "bucket": "should_trigger",
+      "text": "下载这个 Shorts：https://www.youtube.com/shorts/EXAMPLE123",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_trigger",
+      "text": "把这个 YouTube 视频保存下来，最高画质",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_trigger",
+      "text": "这个油管视频只要 MP3",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_trigger",
+      "text": "提取刚才那个 YT 视频的中英文字幕",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_trigger",
+      "text": "查看 https://youtu.be/EXAMPLE123 的视频信息",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_trigger",
+      "text": "在 YouTube 搜索 AI agents",
+      "expected": true,
+      "predicted": true,
+      "passed": true
+    },
+    {
+      "bucket": "should_not_trigger",
+      "text": "把这个 YouTube 链接添加到 NotebookLM，不要下载",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "should_not_trigger",
+      "text": "下载这个哔哩哔哩视频",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "should_not_trigger",
+      "text": "帮我把视频上传到 YouTube",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "should_not_trigger",
+      "text": "给我的 YouTube 频道写一段简介",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "near_neighbor",
+      "text": "总结这个 YouTube 视频，我已经有字幕了",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "near_neighbor",
+      "text": "制作一条适合 YouTube Shorts 的视频",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    },
+    {
+      "bucket": "near_neighbor",
+      "text": "解释 YouTube Shorts 的推荐算法",
+      "expected": false,
+      "predicted": false,
+      "passed": true
+    }
+  ]
+}

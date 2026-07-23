@@ -1,0 +1,47 @@
+interface:
+  display_name: "乔木 YouTube 下载"
+  short_description: "下载并验证 YouTube、Shorts、音频与字幕"
+  default_prompt: "Use $qiaomu-youtube-download whenever I ask to download, save, inspect, search, extract audio, or get subtitles from a YouTube, Shorts, Live, or youtu.be URL. First check yt-dlp against its official latest stable release and upgrade only when needed. Use the optional YouTube Data API key for search/statistics when present and fall back to yt-dlp search. For downloads, auto-detect a local browser cookie source and retry without cookies if automatic access fails; allow me to disable cookies with none. Default to one video and best quality, verify media with ffprobe, and return absolute output paths."
+  examples:
+    - "下载这个 Shorts：https://www.youtube.com/shorts/xxxx"
+    - "把这个 YouTube 视频保存下来，最高画质"
+    - "只要这个视频的 MP3"
+    - "下载中英文字幕，输出 SRT 和 TXT"
+compatibility:
+  canonical_format: "agent-skills"
+  adapter_targets:
+    - "openai"
+    - "claude"
+    - "generic"
+    - "agent-skills-compatible"
+  activation:
+    mode: "automatic-or-manual"
+    paths: []
+  execution:
+    context: "local-machine"
+    shell: "python3 plus yt-dlp and ffmpeg"
+  trust:
+    source_tier: "local-installed-cli"
+    remote_inline_execution: "forbid"
+    browser_cookies: "automatic-local-with-cookie-free-fallback-and-disable-option"
+    generated_public_claims: "evidence-bound"
+  permissions:
+    network: "YouTube metadata, search, subtitle, and media CDN access"
+    file_write: "user-selected output directory"
+    subprocess: "yt-dlp, ffmpeg, ffprobe, and Homebrew only for an existing yt-dlp upgrade"
+    interactive: "may be required by macOS Keychain during automatic browser-cookie access"
+  degradation:
+    no_network: "cannot inspect, search, or download"
+    no_ytdlp: "dependency error with install command"
+    no_ffmpeg: "metadata only; no verified merged video, MP3, or subtitle conversion"
+    no_browser_cookie: "retry public no-cookie path"
+    no_update_network: "report the update-check warning and continue with the installed yt-dlp"
+gates:
+  governed:
+    - "valid single-video YouTube URL"
+    - "automatic local browser-cookie detection with no-cookie fallback"
+    - "cookie source and Data API usage reported without secret values"
+    - "no overwrite and no playlist by default"
+    - "ffprobe verification for audio/video"
+    - "absolute output paths"
+    - "official stable yt-dlp version check with upgrade verification"
